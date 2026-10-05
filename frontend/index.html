@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多麦克风敲击定位台</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <h1>多麦克风敲击定位台</h1>
+  <div class="actions">
+    <button id="btnExample8" type="button">载入示例 · 8 麦 × 12 峰</button>
+    <button id="btnExample4" type="button">载入示例 · 4 麦</button>
+    <button id="btnLocate" class="primary" type="button">定位求解</button>
+  </div>
+</header>
+
+<main>
+  <section id="panel">
+    <details open>
+      <summary>房间与求解参数</summary>
+      <div class="grid4">
+        <label>房间宽 (m)<input type="number" id="roomW" value="8" min="0.1" step="0.1"></label>
+        <label>房间高 (m)<input type="number" id="roomH" value="6" min="0.1" step="0.1"></label>
+        <label>声速 (m/s)<input type="number" id="soundSpeed" value="343" min="0.01" step="1"></label>
+        <label>漂移上限 (ppm)<input type="number" id="driftPpm" value="50" min="0" step="1"></label>
+        <label>时差容限 (ms)<input type="number" id="tolMs" value="0.1" min="0" step="0.01"></label>
+        <label>位置分辨率 (m)<input type="number" id="resolution" value="0.05" min="0.001" step="0.01"></label>
+        <label>麦克风数量
+          <select id="micCount">
+            <option>4</option><option>5</option><option>6</option>
+            <option selected>8</option><option>7</option>
+          </select>
+        </label>
+      </div>
+      <div class="hint">麦克风 1 为时钟基准（首麦），各麦使用独立时钟。</div>
+      <table class="data" id="micTable">
+        <thead><tr><th>麦</th><th>x (m)</th><th>y (m)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </details>
+
+    <details open>
+      <summary>校准敲击（两次，位置已知，分列目标事件前后）</summary>
+      <div class="calblocks">
+        <div>
+          <h4>校准 A（较早）</h4>
+          <div class="grid3">
+            <label>x (m)<input type="number" id="calAx" step="0.1"></label>
+            <label>y (m)<input type="number" id="calAy" step="0.1"></label>
+          </div>
+          <table class="data" id="calATable">
+            <thead><tr><th>麦</th><th>到达时刻 (s)</th></tr></thead><tbody></tbody>
+          </table>
+        </div>
+        <div>
+          <h4>校准 B（较晚）</h4>
+          <div class="grid3">
+            <label>x (m)<input type="number" id="calBx" step="0.1"></label>
+            <label>y (m)<input type="number" id="calBy" step="0.1"></label>
+          </div>
+          <table class="data" id="calBTable">
+            <thead><tr><th>麦</th><th>到达时刻 (s)</th></tr></thead><tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>目标敲击候选峰（每麦 1～12 个：时刻 + 强度）</summary>
+      <div id="candEditor" class="cand-editor"></div>
+      <div class="hint">峰强度仅用于展示，<b>不参与</b>几何裁决——强回声不会压过几何一致的直达峰。</div>
+    </details>
+  </section>
+
+  <section id="view">
+    <div id="statusBar" class="status idle">填写参数后点击「定位求解」。</div>
+    <div id="mapWrap">
+      <svg id="map" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="mapLegend"></div>
+    </div>
+    <div id="clockPanel" class="subpanel hidden">
+      <h4>时钟校准（相对首麦）</h4>
+      <table class="data" id="clockTable">
+        <thead><tr><th>麦</th><th>速率偏差 (ppm)</th><th>偏移 (ms)</th></tr></thead><tbody></tbody>
+      </table>
+    </div>
+    <div id="micPanel" class="subpanel">
+      <h4>各麦入选峰与残差</h4>
+      <div id="micResults" class="mic-results"></div>
+    </div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
