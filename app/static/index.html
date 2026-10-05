@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多麦克风敲击定位台</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #181f30; --panel2: #1f2840; --line: #2c3753;
+    --text: #e6ebf5; --muted: #8b97b3; --accent: #4da3ff; --ok: #3ddc84;
+    --warn: #ffb020; --err: #ff5c5c; --mic: #4da3ff; --src: #3ddc84;
+    --alt: #ffb020; --calib: #b07cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); font-size: 13px;
+  }
+  header {
+    padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .layout { display: flex; min-height: calc(100vh - 48px); }
+  .sidebar {
+    width: 430px; min-width: 430px; max-height: calc(100vh - 48px);
+    overflow-y: auto; padding: 12px; border-right: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .main { flex: 1; padding: 14px; overflow: auto; }
+  fieldset {
+    border: 1px solid var(--line); border-radius: 8px; margin: 0 0 10px;
+    padding: 8px 10px 10px; background: var(--panel2);
+  }
+  legend { padding: 0 6px; color: var(--accent); font-weight: 600; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 5px 0; flex-wrap: wrap; }
+  .row label { color: var(--muted); min-width: 118px; }
+  .row .hint { color: var(--muted); font-size: 11px; }
+  input[type=number], input[type=text] {
+    background: #0d1322; border: 1px solid var(--line); color: var(--text);
+    border-radius: 5px; padding: 4px 6px; width: 92px; font-size: 12px;
+  }
+  input.wide { width: 150px; }
+  button {
+    background: var(--accent); color: #08111f; border: 0; border-radius: 6px;
+    padding: 7px 14px; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.secondary { background: #33405f; color: var(--text); }
+  table { border-collapse: collapse; width: 100%; font-size: 11px; }
+  th, td { border: 1px solid var(--line); padding: 2px 4px; text-align: center; }
+  th { background: #232d47; color: var(--muted); font-weight: 500; }
+  td input { width: 100%; min-width: 46px; padding: 2px 3px; }
+  .scroll-x { overflow-x: auto; }
+  #canvas-wrap {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; display: inline-block;
+  }
+  canvas { background: #0c1120; border-radius: 4px; display: block; }
+  .status-bar {
+    margin-top: 10px; padding: 9px 12px; border-radius: 7px; font-weight: 600;
+    display: none;
+  }
+  .status-ok { background: rgba(61,220,132,.12); border: 1px solid var(--ok); color: var(--ok); display:block; }
+  .status-amb { background: rgba(255,176,32,.12); border: 1px solid var(--warn); color: var(--warn); display:block; }
+  .status-err { background: rgba(255,92,92,.12); border: 1px solid var(--err); color: var(--err); display:block; }
+  .cards { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; min-width: 200px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .card .v { font-size: 15px; font-weight: 600; }
+  .legend-list { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; }
+  .legend-list li { margin: 3px 0; display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .alt-sol { cursor: pointer; }
+  .alt-sol:hover { text-decoration: underline; }
+  #mic-resid-table td.good { color: var(--ok); }
+  #mic-resid-table td.bad { color: var(--err); }
+  .peaksel { font-weight: 700; color: var(--ok); }
+</style>
+</head>
+<body>
+<header>
+  <h1>多麦克风敲击定位台</h1>
+  <span class="sub">独立时钟 · 双校准 · 候选峰联合裁决 · 直达几何优先于峰强</span>
+  <span style="flex:1"></span>
+  <button class="secondary" id="btn-demo">载入演示（8 麦·唯一定位）</button>
+  <button class="secondary" id="btn-demo-amb">演示：强回声歧义</button>
+  <button id="btn-solve">定位求解</button>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+    <fieldset>
+      <legend>房间与求解参数</legend>
+      <div class="row"><label>房间宽 × 高 (m)</label>
+        <input type="number" id="room-w" value="8" step="0.1" min="0.1">
+        <input type="number" id="room-h" value="6" step="0.1" min="0.1">
+      </div>
+      <div class="row"><label>声速 (m/s)</label>
+        <input type="number" id="speed" value="343" step="1" min="0.001">
+      </div>
+      <div class="row"><label>漂移上限 (ppm)</label>
+        <input type="number" id="drift" value="50" step="1" min="0">
+      </div>
+      <div class="row"><label>时差容限 (ms)</label>
+        <input type="number" id="tol" value="0.05" step="0.01" min="0">
+        <span class="hint">最大绝对 TDOA 残差</span>
+      </div>
+      <div class="row"><label>位置分辨率 (m)</label>
+        <input type="number" id="res" value="0.05" step="0.01" min="0.001">
+      </div>
+      <div class="row"><label>麦克风数量</label>
+        <input type="number" id="nmics" value="8" min="4" max="8" step="1">
+        <button class="secondary" id="btn-apply-mics" style="padding:4px 10px">应用</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>麦克风坐标 (m)</legend>
+      <div class="scroll-x"><table id="mic-table"></table></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>两次校准敲击（分列目标事件前后，位置已知）</legend>
+      <div class="row"><label>校准点 A 坐标</label>
+        <input type="number" id="cal-ax" step="0.1"> <input type="number" id="cal-ay" step="0.1">
+      </div>
+      <div class="row"><label>校准点 B 坐标</label>
+        <input type="number" id="cal-bx" step="0.1"> <input type="number" id="cal-by" step="0.1">
+      </div>
+      <div class="hint" style="margin:4px 0">各麦到达时刻用各自本地时钟填写（秒）：</div>
+      <div class="scroll-x"><table id="cal-table"></table></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>目标敲击候选峰（每麦 1～12 个，时刻 s / 强度）</legend>
+      <div id="cand-editor"></div>
+    </fieldset>
+  </div>
+
+  <div class="main">
+    <div id="canvas-wrap"><canvas id="map" width="860" height="640"></canvas></div>
+    <div id="status" class="status-bar"></div>
+    <div class="cards" id="cards"></div>
+    <div class="cards">
+      <div class="card" style="flex:1;min-width:320px">
+        <h3>各麦入选峰与残差</h3>
+        <div class="scroll-x"><table id="mic-resid-table">
+          <thead><tr><th>麦</th><th>候选序号</th><th>本地时刻 (s)</th>
+            <th>强度</th><th>残差 (ms)</th><th>漂移 (ppm)</th><th>时钟偏移 (s)</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+      <div class="card" style="min-width:230px">
+        <h3>图例</h3>
+        <ul class="legend-list">
+          <li><span class="swatch" style="background:var(--calib)"></span>校准敲击点 A / B</li>
+          <li><span class="swatch" style="background:var(--mic)"></span>麦克风（编号）</li>
+          <li><span class="swatch" style="background:var(--ok)"></span>定位点（入选峰为实线连线）</li>
+          <li><span class="swatch" style="background:var(--warn)"></span>歧义位置</li>
+          <li><span style="color:#7e8aa8">○ 灰圈</span>未入选候选峰</li>
+          <li><span class="swatch" style="background:var(--ok)"></span>入选候选峰（绿描边）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ============================================================ 状态与工具
+let NMICS = 8;
+let lastView = null;
+
+const $ = (id) => document.getElementById(id);
+const num = (id) => parseFloat($(id).value);
+
+// ============================================================ 表格构建
+function buildMicTable() {
+  const t = $("mic-table");
+  let html = "<thead><tr><th>麦</th><th>x</th><th>y</th></tr></thead><tbody>";
+  for (let i = 0; i < NMICS; i++) {
+    html += `<tr><td>M${i}${i === 0 ? "（时基）" : ""}</td>`
+      + `<td><input type="number" step="0.05" data-mx="${i}"></td>`
+      + `<td><input type="number" step="0.05" data-my="${i}"></td></tr>`;
+  }
+  t.innerHTML = html + "</tbody>";
+}
+
+function buildCalibTable() {
+  const t = $("cal-table");
+  let html = "<thead><tr><th>麦</th><th>A 到达 (s)</th><th>B 到达 (s)</th></tr></thead><tbody>";
+  for (let i = 0; i < NMICS; i++) {
+    html += `<tr><td>M${i}</td>`
+      + `<td><input type="number" step="0.0001" data-ca="${i}"></td>`
+      + `<td><input type="number" step="0.0001" data-cb="${i}"></td></tr>`;
+  }
+  t.innerHTML = html + "</tbody>";
+}
+
+function buildCandEditor() {
+  const box = $("cand-editor");
+  let html = "";
+  for (let i = 0; i < NMICS; i++) {
+    html += `<div style="margin:6px 0"><div class="row" style="margin:2px 0">
+      <label style="min-width:42px">M${i}</label>
+      <button type="button" class="secondary" style="padding:2px 8px;font-size:11px"
+        data-add="${i}">＋ 候选峰</button>
+      <span class="hint" id="cand-count-${i}"></span></div>
+      <div class="scroll-x"><table id="cand-table-${i}"></table></div></div>`;
+  }
+  box.innerHTML = html;
+  for (let i = 0; i < NMICS; i++) {
+    renderCandRows(i, 1);
+  }
+}
+
+function candValues(i) {
+  return [...document.querySelectorAll(`#cand-table-${i} tbody tr`)].map((tr) => {
+    const ins = tr.querySelectorAll("input");
+    return { t: ins[0].value, s: ins[1].value };
+  });
+}
+
+function renderCandRows(i, vals) {
+  if (typeof vals === "number") {
+    const cur = candValues(i);
+    while (cur.length < vals) cur.push({ t: "", s: "1" });
+    vals = cur.slice(0, vals);
+  }
+  const t = $(`cand-table-${i}`);
+  let html = "<thead><tr><th>#</th><th>到达时刻 (s)</th><th>强度</th><th></th></tr></thead><tbody>";
+  vals.forEach((p, k) => {
+    html += `<tr><td>${k}</td>`
+      + `<td><input type="number" step="0.00001" data-ct="${i}" value="${p.t ?? ""}"></td>`
+      + `<td><input type="number" step="0.01" min="0" data-cs="${i}" value="${p.s ?? "1"}"></td>`
+      + `<td><button type="button" class="secondary" style="padding:1px 7px"
+          data-del="${i}:${k}">×</button></td></tr>`;
+  });
+  t.innerHTML = html + "</tbody>";
+  $(`cand-count-${i}`).textContent = `共 ${vals.length} 个候选`;
+}
+
+// 事件委托：新增 / 删除候选峰
+document.addEventListener("click", (e) => {
+  const add = e.target.closest("[data-add]");
+  if (add) {
+    const i = +add.dataset.add;
+    const vals = candValues(i);
+    if (vals.length < 12) renderCandRows(i, vals.concat([{ t: "", s: "1" }]));
+    return;
+  }
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    const [i, k] = del.dataset.del.split(":").map(Number);
+    const vals = candValues(i);
+    if (vals.length > 1) { vals.splice(k, 1); renderCandRows(i, vals); }
+  }
+});
+
+function rebuildAll() {
+  buildMicTable();
+  buildCalibTable();
+  buildCandEditor();
+}
+
+// ============================================================ 收集表单
+function collectRequest() {
+  const mics = [];
+  for (let i = 0; i < NMICS; i++) {
+    mics.push([parseFloat(document.querySelector(`[data-mx="${i}"]`).value),
+               parseFloat(document.querySelector(`[data-my="${i}"]`).value)]);
+  }
+  const ca = [], cb = [];
+  for (let i = 0; i < NMICS; i++) {
+    ca.push(parseFloat(document.querySelector(`[data-ca="${i}"]`).value));
+    cb.push(parseFloat(document.querySelector(`[data-cb="${i}"]`).value));
+  }
+  const candidates = [];
+  for (let i = 0; i < NMICS; i++) {
+    const rows = document.querySelectorAll(`#cand-table-${i} tbody tr`);
+    const peaks = [];
+    rows.forEach((tr) => {
+      const ins = tr.querySelectorAll("input");
+      const t = parseFloat(ins[0].value);
+      const s = parseFloat(ins[1].value);
+      if (Number.isFinite(t)) peaks.push({ t, strength: Number.isFinite(s) ? s : 0 });
+    });
+    candidates.push(peaks);
+  }
+  return {
+    room_width: num("room-w"), room_height: num("room-h"),
+    sound_speed: num("speed"), drift_ppm_limit: num("drift"),
+    tdoa_tolerance: num("tol") / 1000.0,
+    position_resolution: num("res"),
+    microphones: mics,
+    calib_pos_a: [num("cal-ax"), num("cal-ay")],
+    calib_pos_b: [num("cal-bx"), num("cal-by")],
+    calib_a: ca, calib_b: cb, candidates,
+  };
+}
+
+// ============================================================ 演示数据
+function makeDemo({ ambiguous = false } = {}) {
+  const W = 8, H = 6, c = 343;
+  const mics = [[1,1],[7,0.8],[7.5,5],[0.5,4.8],[4,0.5],[4.2,5.5],[2,3],[6.5,3.2]];
+  const rates = [1, -4.89e-6 + 1, 28.69e-6 + 1, 15.79e-6 + 1, -32.47e-6 + 1,
+                 38.05e-6 + 1, 20.89e-6 + 1, 22.89e-6 + 1];
+  const offs = [0, 0.00412, -0.00731, 0.00205, -0.00388, 0.00674, -0.00193, 0.00516];
+  const lt = (i, t) => rates[i] * t + offs[i];
+  const pA = [0.6, 0.4], pB = [7.4, 5.6];
+  const tA = 100.0, tB = 120.0;
+  const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+  const ca = mics.map((m, i) => lt(i, tA + dist(pA, m) / c));
+  const cb = mics.map((m, i) => lt(i, tB + dist(pB, m) / c));
+
+  const src = [3.3, 4.1], tE = 110.0;
+  // 伪随机（固定种子）
+  let seed = 1234567;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+
+  const candidates = mics.map((m, i) => {
+    const direct = lt(i, tE + dist(src, m) / c);
+    const peaks = [{ t: direct, strength: 0.15 }];
+    if (ambiguous) {
+      // 构造一个几何一致的“幻影源”：各麦加入同一幻影点走时产生的峰
+      const phantom = [6.1, 2.2];
+      peaks.push({ t: lt(i, tE + dist(phantom, m) / c), strength: 0.97 });
+      while (peaks.length < 12) {
+        peaks.push({ t: direct + 0.006 + rnd() * 0.028, strength: 0.5 + rnd() * 0.45 });
+      }
+    } else {
+      while (peaks.length < 12) {
+        peaks.push({ t: direct + 0.008 + rnd() * 0.03, strength: 0.6 + rnd() * 0.4 });
+      }
+    }
+    // 打乱
+    for (let k = peaks.length - 1; k > 0; k--) {
+      const j = Math.floor(rnd() * (k + 1));
+      [peaks[k], peaks[j]] = [peaks[j], peaks[k]];
+    }
+    return peaks;
+  });
+
+  return {
+    room_width: W, room_height: H, sound_speed: c, drift_ppm_limit: 50,
+    tdoa_tolerance: ambiguous ? 0.30 / 1000 : 0.05 / 1000,
+    position_resolution: 0.05,
+    microphones: mics, calib_pos_a: pA, calib_pos_b: pB,
+    calib_a: ca, calib_b: cb, candidates,
+  };
+}
+
+function fillForm(d) {
+  $("room-w").value = d.room_width;
+  $("room-h").value = d.room_height;
+  $("speed").value = d.sound_speed;
+  $("drift").value = d.drift_ppm_limit;
+  $("tol").value = d.tdoa_tolerance * 1000;
+  $("res").value = d.position_resolution;
+  NMICS = d.microphones.length;
+  $("nmics").value = NMICS;
+  rebuildAll();
+  d.microphones.forEach((m, i) => {
+    document.querySelector(`[data-mx="${i}"]`).value = m[0];
+    document.querySelector(`[data-my="${i}"]`).value = m[1];
+  });
+  $("cal-ax").value = d.calib_pos_a[0]; $("cal-ay").value = d.calib_pos_a[1];
+  $("cal-bx").value = d.calib_pos_b[0]; $("cal-by").value = d.calib_pos_b[1];
+  d.calib_a.forEach((v, i) => { document.querySelector(`[data-ca="${i}"]`).value = v.toFixed(6); });
+  d.calib_b.forEach((v, i) => { document.querySelector(`[data-cb="${i}"]`).value = v.toFixed(6); });
+  d.candidates.forEach((peaks, i) => {
+    renderCandRows(i, peaks.length);
+    peaks.forEach((p, k) => {
+      const tr = document.querySelectorAll(`#cand-table-${i} tbody tr`)[k];
+      const ins = tr.querySelectorAll("input");
+      ins[0].value = p.t.toFixed(6);
+      ins[1].value = p.strength.toFixed(2);
+    });
+  });
+}
+
+// ============================================================ 地图绘制
+function drawMap(result, focusSol) {
+  const cv = $("map");
+  const ctx = cv.getContext("2d");
+  const [W, H] = result.room;
+  const pad = 50;
+  const scale = Math.min((cv.width - pad * 2) / W, (cv.height - pad * 2) / H);
+  const ox = pad, oy = pad;
+  const X = (x) => ox + x * scale;
+  const Y = (y) => cv.height - (oy + y * scale);
+
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  // 网格
+  ctx.strokeStyle = "#1b2540"; ctx.lineWidth = 1;
+  const step = 1;
+  for (let x = 0; x <= W + 1e-9; x += step) {
+    ctx.beginPath(); ctx.moveTo(X(x), Y(0)); ctx.lineTo(X(x), Y(H)); ctx.stroke();
+  }
+  for (let y = 0; y <= H + 1e-9; y += step) {
+    ctx.beginPath(); ctx.moveTo(X(0), Y(y)); ctx.lineTo(X(W), Y(y)); ctx.stroke();
+  }
+  // 房间边界
+  ctx.strokeStyle = "#5a6b96"; ctx.lineWidth = 2;
+  ctx.strokeRect(X(0), Y(H), W * scale, H * scale);
+
+  // 校准点
+  const drawCalib = (p, label, color) => {
+    ctx.fillStyle = color; ctx.strokeStyle = "#fff3";
+    ctx.beginPath();
+    ctx.moveTo(X(p[0]), Y(p[1]) - 11);
+    ctx.lineTo(X(p[0]) + 10, Y(p[1]) + 7);
+    ctx.lineTo(X(p[0]) - 10, Y(p[1]) + 7);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#08111f"; ctx.font = "bold 10px sans-serif";
+    ctx.textAlign = "center"; ctx.fillText(label, X(p[0]), Y(p[1]) + 4);
+  };
+  drawCalib(result.calib_positions[0], "A", "#b07cff");
+  drawCalib(result.calib_positions[1], "B", "#b07cff");
+
+  // 候选峰（画在每个麦周围的小圈，按时间展开）
+  result.microphones.forEach((m, i) => {
+    const peaks = result.candidates[i];
+    peaks.forEach((p, k) => {
+      const ang = (k / peaks.length) * Math.PI * 1.6 - Math.PI * 0.8;
+      const rr = 20 + (p.strength || 0) * 9;
+      const px = X(m[0]) + Math.cos(ang) * rr;
+      const py = Y(m[1]) + Math.sin(ang) * rr;
+      const selected = focusSol && focusSol.peak_indices[i] === k;
+      ctx.beginPath();
+      ctx.arc(px, py, selected ? 5 : 3.5, 0, Math.PI * 2);
+      if (selected) {
+        ctx.fillStyle = "#3ddc84"; ctx.fill();
+        ctx.strokeStyle = "#d8ffe9"; ctx.lineWidth = 1.5; ctx.stroke();
+      } else {
+        ctx.fillStyle = `rgba(150,170,210,${0.25 + Math.min((p.strength||0),1) * 0.4})`;
+        ctx.fill();
+        ctx.strokeStyle = "#7e8aa8"; ctx.lineWidth = 0.8; ctx.stroke();
+      }
+    });
+  });
+
+  // 定位点与各麦连线
+  const sols = [];
+  if (result.solution) sols.push({ sol: result.solution, main: true });
+  (result.alternatives || []).forEach((s) => sols.push({ sol: s, main: false }));
+  sols.forEach(({ sol, main }) => {
+    if (!main && focusSol !== sol) return;
+    const color = main ? "#3ddc84" : "#ffb020";
+    ctx.strokeStyle = main ? "rgba(61,220,132,.55)" : "rgba(255,176,32,.4)";
+    ctx.lineWidth = main ? 1.6 : 1;
+    sol.peak_indices.forEach((k, i) => {
+      ctx.beginPath();
+      ctx.moveTo(X(sol.position[0]), Y(sol.position[1]));
+      ctx.lineTo(X(result.microphones[i][0]), Y(result.microphones[i][1]));
+      ctx.stroke();
+    });
+    // 分辨率圈
+    ctx.beginPath();
+    ctx.arc(X(sol.position[0]), Y(sol.position[1]),
+            result.resolution * scale, 0, Math.PI * 2);
+    ctx.strokeStyle = color + "66"; ctx.lineWidth = 1; ctx.stroke();
+    // 定位点
+    ctx.beginPath();
+    ctx.arc(X(sol.position[0]), Y(sol.position[1]), main ? 8 : 6, 0, Math.PI * 2);
+    ctx.fillStyle = color; ctx.fill();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = color; ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(main ? "定位点" : "歧义点", X(sol.position[0]) + 10,
+                 Y(sol.position[1]) - 8);
+  });
+
+  // 麦克风
+  result.microphones.forEach((m, i) => {
+    ctx.beginPath();
+    ctx.arc(X(m[0]), Y(m[1]), 7, 0, Math.PI * 2);
+    ctx.fillStyle = "#4da3ff"; ctx.fill();
+    ctx.strokeStyle = "#cfe6ff"; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = "#08111f"; ctx.font = "bold 9px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(String(i), X(m[0]), Y(m[1]) + 3);
+  });
+}
+
+// ============================================================ 结果渲染
+function showError(result, view) {
+  const bar = $("status");
+  bar.className = "status-bar status-err";
+  const reasons = {
+    INVALID_INPUT: "输入无效",
+    MICS_COLLINEAR: "麦克风共线",
+    CALIB_REVERSED: "校准时刻倒序",
+    DRIFT_EXCEEDED: "时钟漂移越界",
+    TARGET_OUTSIDE_CALIBRATION: "目标候选峰不在两次校准事件之间",
+    NO_CONSISTENT_SOLUTION: "无一致解",
+  };
+  bar.textContent = `✗ ${reasons[result.status] || result.status}：${result.message}`;
+  $("cards").innerHTML = result.nearest
+    ? `<div class="card"><h3>最近似解（超差，仅供排查）</h3>
+       <div class="v" style="color:var(--err)">(${result.nearest.position[0].toFixed(3)},
+       ${result.nearest.position[1].toFixed(3)})</div>
+       <div style="color:var(--muted)">最大残差 ${(result.nearest.max_residual*1000).toFixed(4)} ms
+       ＞ 容限 ${(view.tol*1000).toFixed(3)} ms</div></div>`
+    : "";
+  if (result.nearest) {
+    view.solution = result.nearest;
+    view.alternatives = [];
+    drawMap(view, result.nearest);
+    renderResidTable(view, result.nearest);
+  } else {
+    document.querySelector("#mic-resid-table tbody").innerHTML = "";
+    drawMap(view, null);
+  }
+}
+
+function buildView(body) {
+  return {
+    room: [body.room_width, body.room_height],
+    microphones: body.microphones,
+    calib_positions: [body.calib_pos_a, body.calib_pos_b],
+    resolution: body.position_resolution,
+    tol: body.tdoa_tolerance,
+    candidates: body.candidates.map((ps) =>
+      ps.map((p) => ({ strength: p.strength }))),
+  };
+}
+
+function renderResult(result) {
+  drawMap(result, result.solution);
+  const bar = $("status");
+  if (result.status === "OK") {
+    bar.className = "status-bar status-ok";
+    bar.textContent = `✓ ${result.message}｜求解耗时 ${result.solve_ms.toFixed(0)} ms`;
+  } else if (result.status === "AMBIGUOUS") {
+    bar.className = "status-bar status-amb";
+    bar.textContent = `⚠ ${result.message}｜最优解残差最小；求解耗时 ${result.solve_ms.toFixed(0)} ms`;
+  } else {
+    showError(result, lastView);
+    return;
+  }
+  renderCards(result);
+  renderResidTable(result, result.solution);
+}
+
+function renderCards(result) {
+  const cards = $("cards");
+  if (!result.solution) { cards.innerHTML = ""; return; }
+  const s = result.solution;
+  const amb = (result.alternatives || []).map((a, i) =>
+    `<div class="alt-sol" style="color:var(--alt)" data-alt="${i}">
+       歧义 ${i + 1}: (${a.position[0].toFixed(2)}, ${a.position[1].toFixed(2)})
+       — 残差 ${(a.max_residual * 1000).toFixed(4)} ms
+     </div>`).join("");
+  cards.innerHTML = `
+    <div class="card"><h3>定位坐标 (m)</h3>
+      <div class="v" style="color:var(--ok)">(${s.position[0].toFixed(3)}, ${s.position[1].toFixed(3)})</div></div>
+    <div class="card"><h3>最大绝对时差残差</h3>
+      <div class="v">${(s.max_residual * 1000).toFixed(4)} ms</div>
+      <div style="color:var(--muted)">容限 ${(result.tol * 1000).toFixed(3)} ms</div></div>
+    <div class="card"><h3>入选候选序号</h3>
+      <div class="v">[${s.peak_indices.join(", ")}]</div></div>
+    <div class="card"><h3>估计发射时刻（首麦时标 s）</h3>
+      <div class="v">${s.emission_time_ref.toFixed(5)}</div></div>
+    <div class="card"><h3>求解耗时</h3>
+      <div class="v">${result.solve_ms.toFixed(0)} ms</div></div>
+    ${amb ? `<div class="card"><h3>歧义位置（点击查看）</h3>${amb}</div>` : ""}
+  `;
+  cards.querySelectorAll("[data-alt]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const a = result.alternatives[+el.dataset.alt];
+      drawMap(result, a);
+      renderResidTable(result, a);
+    });
+  });
+}
+
+function renderResidTable(result, sol) {
+  const tb = document.querySelector("#mic-resid-table tbody");
+  const tolMs = result.tol * 1000;
+  tb.innerHTML = result.microphones.map((m, i) => {
+    const d = sol.mics[i];
+    const cal = result.calibration[i];
+    const rMs = d.residual * 1000;
+    const cls = Math.abs(rMs) <= tolMs ? "good" : "bad";
+    return `<tr>
+      <td>M${i}${i === 0 ? " ★" : ""}</td>
+      <td class="peaksel">${d.peak_index}</td>
+      <td>${d.t_local.toFixed(6)}</td>
+      <td>${d.strength.toFixed(2)}</td>
+      <td class="${cls}">${rMs.toFixed(4)}</td>
+      <td>${cal.drift_ppm.toFixed(2)}</td>
+      <td>${cal.offset.toFixed(6)}</td>
+    </tr>`;
+  }).join("");
+}
+
+// ============================================================ 事件
+$("btn-apply-mics").addEventListener("click", () => {
+  const n = Math.max(4, Math.min(8, parseInt($("nmics").value, 10) || 4));
+  $("nmics").value = n;
+  NMICS = n;
+  rebuildAll();
+});
+
+$("btn-demo").addEventListener("click", () => {
+  fillForm(makeDemo({ ambiguous: false }));
+  runSolve();
+});
+$("btn-demo-amb").addEventListener("click", () => {
+  fillForm(makeDemo({ ambiguous: true }));
+  runSolve();
+});
+$("btn-solve").addEventListener("click", runSolve);
+
+async function runSolve() {
+  const btn = $("btn-solve");
+  btn.disabled = true; btn.textContent = "求解中…";
+  try {
+    const body = collectRequest();
+    const resp = await fetch("/api/locate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const result = await resp.json();
+    if (result.status === "OK" || result.status === "AMBIGUOUS") {
+      lastView = result;
+      renderResult(result);
+    } else {
+      const view = buildView(body);
+      if (result.calibration) view.calibration = result.calibration;
+      else view.calibration = body.microphones.map(() => ({ drift_ppm: NaN, offset: NaN }));
+      lastView = view;
+      showError(result, view);
+    }
+  } catch (e) {
+    const bar = $("status");
+    bar.className = "status-bar status-err";
+    bar.textContent = "✗ 请求失败：" + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "定位求解";
+  }
+}
+
+// ============================================================ 初始化
+rebuildAll();
+fillForm(makeDemo({ ambiguous: false }));
+</script>
+</body>
+</html>
